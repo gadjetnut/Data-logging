@@ -47,7 +47,7 @@ def LogTelemetry(devid, type, value):
 		else:
 			uom="F"
 	else:
-		uom=""
+		uom=" "
 	
 	# prepare a cursor object using cursor() 
 	# method
