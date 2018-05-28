@@ -41,17 +41,22 @@ def LogTelemetry(devid, type, value):
 	"password",
 	"sensor_logs" )
 	
-	if (Fahrenheit == False):
-		uom="C"
+	if (type==3):
+		if (Fahrenheit == False):
+			uom="C"
+		else:
+			uom="F"
 	else:
-		uom="F"
+		uom=""
 	
 	# prepare a cursor object using cursor() 
 	# method
 	cursor = db.cursor()
 	
 	# build the SQL statement
-	sql = "INSERT INTO telemetry_log (device_id, type, temperature, date, unit_of_measure) VALUES (%d, %d, %d, NOW(), '%c')" % (devid, type, value, uom)  
+	sql = "INSERT INTO telemetry_log (device_id, type, value, date, unit_of_measure) VALUES ('%s', %d, '%s', NOW(), '%c')" % (devid, type, value, uom)  
+	
+	dprint(sql);
 	
 	# Execute the SQL command
 	cursor.execute(sql)
@@ -62,7 +67,7 @@ def LogTelemetry(devid, type, value):
 	# disconnect from server
 	db.close()
 	
-	dprint("Telemetry "+ devid + ","+ type + "," + str(value) + "," + uom + "," + "logged");
+	dprint("Telemetry "+ str(devid) + ","+ str(type) + "," + str(value) + "," + uom + "," + "logged");
 			
 def ProcessMessage(value, value2, DevId, type):
 # Notify the host that there is new data from a sensor (e.g. door open)
@@ -79,7 +84,7 @@ def ProcessMessage(value, value2, DevId, type):
 
 		#Send battery level to host
 		if type==2:
-				LogTelemetry("B"+DevId,2, value)
+				LogTelemetry(DevId,2, value)
 
 		#Send temperature to host
 		if type==3:
