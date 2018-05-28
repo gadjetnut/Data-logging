@@ -29,7 +29,7 @@ function DisplayTelemetryLog($num_rows_to_display){
 	echo "<table class='telemetry_table'>";
 	echo "<tr>";
 	echo "<th>Date</th>";
-	echo "<th>Devide ID</th>";
+	echo "<th>Device ID</th>";
 	echo "<th>Type</th>";
 	echo "<th>Value</th>";
 	echo "<th>UOM</th>";
