@@ -29,6 +29,7 @@ function DisplayTelemetryLog($num_rows_to_display){
 	echo "<table class='telemetry_table'>";
 	echo "<tr>";
 	echo "<th>Date</th>";
+	echo "<th>Devide ID</th>";
 	echo "<th>Type</th>";
 	echo "<th>Value</th>";
 	echo "<th>UOM</th>";
@@ -41,6 +42,7 @@ function DisplayTelemetryLog($num_rows_to_display){
 	    $res->data_seek($row_no);
 	    $row = $res->fetch_assoc();
 		echo "<td>".$row['date']."</td>";
+	    echo "<td>".$row['device_id']."</td>";
 	    echo "<td>".$row['type']."</td>";
 		echo "<td>".$row['value']."</td>";
 	    echo "<td>".$row['unit_of_measure']."</td>";
