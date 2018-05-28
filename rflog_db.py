@@ -13,6 +13,7 @@
 # V1.00 - Release
 # -----------------------------------------------------------------------------------
 #
+import MySQLdb 
 import serial
 import time
 from time import sleep
