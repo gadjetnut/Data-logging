@@ -89,7 +89,7 @@ def ProcessMessage(value, value2, DevId, type):
 		#Send temperature to host
 		if type==3:
 				if Fahrenheit:
-						value = value*1.8+32
+						value = float(value)*1.8+32
 						value = round(value,2)
 				
 				LogTelemetry(str(DevId),3, str(value))
@@ -200,7 +200,7 @@ def main():
 						currvalue=""
 						sensordata=""
 						tempbdata=""
-				sleep(0.2)
+				#sleep(0.2)
 				#except:
 				#        print "Error: unable to start thread"
            
