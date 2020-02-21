@@ -11,6 +11,7 @@
 #                                                                                  
 # Revision History                                                                  
 # V1.00 - Release
+# V2.00 - Updates to improve performance and added new sensor types
 # -----------------------------------------------------------------------------------
 #
 import MySQLdb 
