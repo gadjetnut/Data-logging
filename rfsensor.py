@@ -1,80 +1,82 @@
 #!/usr/bin/env python
-#rflog_db.py Interface between RF Module serial interface and AdafruitIO
-#---------------------------------------------------------------------------------                                                                               
-# J. Evans May 2018
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-# WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                                       
-#                                                                                  
-# Revision History                                                                  
-# V1.00 - Release
-# -----------------------------------------------------------------------------------
-#
-import MySQLdb 
-import serial
+"""
+rfsensor.py v21 PrivateEyePi RF Sensor Interface
+---------------------------------------------------------------------------------
+ Works conjunction with host at www.privateeyepi.com                              
+ Visit projects.privateeyepi.com for full details                                 
+                                          
+ J. Evans October 2013       
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
+ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
+ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                                       
+                                          
+ Revision History                                                                  
+ V1.00 - Release
+ V2.00 - Incorporation of rules functionality  
+ V3.00 - Incorporated Button B logic
+ V3.01 - High CPU utilization fixed
+ V9    - Rule release   
+ V10   - Added support for the BETA single button power saving wireless switch   
+     - Functionality added for wireless temperature and humidity sensor  
+ V11   - Fixed a bug with negative readings from a DHT22 sensor
+ V13   - Publish temperature to LCD
+ V14   - Added auto sensor creation on the server, dropped support for obsolete two button sensors
+ V15   - Added token based authentication
+ V16   - Removed delay to speed up serial polling
+ V17   - Added functionality for Light sensors
+ V18   - Fixed bug wireles switch BUTTONON and BUTTONOFF sensing same state
+ V20   - Changed STATEON STATEOFF to not trigger rules or log on the server
+ V21   - Added support for BME280 Temperature, Humidity and Air Pressure
+ -----------------------------------------------------------------------------------
+"""
+
+import globals
 import time
-from time import sleep
 import sys
 from threading import Thread
+from alarmfunctionsr import UpdateHostThread
+from time import sleep
 from bme280 import process_bme_reading
 from rf2serial import rf2serial
 import rfsettings
 
-DEBUG = True
-Farenheit = False
-
 def dprint(message):
-  if (DEBUG):
+  if (globals.PrintToScreen):
     print message
 
-def ProcessMessageThread(value, value2, DevId, type):
-  try:
-      thread.start_new_thread(ProcessMessage, (value, value2, DevId, type, ) )
-  except:
-      print "Error: unable to start thread"
-
-def LogTelemetry(devid, type, value, uom):
-  # log the temperature to the database
-  # open database connection
-  db = MySQLdb.connect(
-  "localhost",
-  "dblogger",
-  "password",
-  "sensor_logs" )
+def ProcessMessage(value, DevId, PEPFunction):  
+  global measure
+  
+  # Notify the host that there is new data from a sensor (e.g. door open)
  
+  hostdata =[]
+  hostdata.append(DevId)
+  hostdata.append(value)
+  if PEPFunction==22: #Battery
+      MaxVoltage=3
+      for z in range (0,len(globals.VoltageList)):
+        if globals.VoltageList[z] == int(DevId):
+          MaxVoltage=globals.MaxVoltage[z]
+      hostdata.append(MaxVoltage) #MaxVoltage
+  if PEPFunction==37: #Temperature or Analog
+      hostdata.append(measure)
+  rt=UpdateHostThread(PEPFunction,hostdata)
   
-  # prepare a cursor object using cursor() 
-  # method
-  cursor = db.cursor()
-  
-  # build the SQL statement
-  sql = "INSERT INTO telemetry_log (device_id, type, value, date, unit_of_measure) VALUES ('%s', %d, '%s', NOW(), '%c')" % (devid, type, value, uom)  
-  
-  dprint(sql);
-  
-  # Execute the SQL command
-  cursor.execute(sql)
-  
-  # Commit your changes in the database
-  db.commit()
-  
-  # disconnect from server
-  db.close()
-  
-  dprint("Telemetry "+ str(devid) + ","+ str(type) + "," + str(value) + "," + uom + "," + "logged");
-      
-def ProcessMessage(value, DevId, type, uom):
-# Notify the host that there is new data from a sensor (e.g. door open)
-  try:
-    dprint("Processing data : DevId="+str(DevId)+",Type="+str(type)+",Value="+str(value))
-    LogTelemetry(DevId,type, value, uom)
-        
-  except Exception as e: dprint(e)
   return(0)
 
+def DoFahrenheitConversion(value):
+  global measure
+  if globals.Farenheit:
+    value = float(value)*1.8+32
+    value = round(value,2)
+    measure = '1'
+  else:
+    measure='0'
+  return(value)
+  
 def remove_duplicates():
     x=0
     print "sorted deduplified queue:"
@@ -86,6 +88,10 @@ def remove_duplicates():
     while x<len(rfsettings.message_queue)-1:   
         if rfsettings.message_queue[x][0]==rfsettings.message_queue[x+1][0] and \
            rfsettings.message_queue[x][1]==rfsettings.message_queue[x+1][1]:
+            #print "duplicate removed:"+rfsettings.message_queue[x][0]+rfsettings.message_queue[x][1]
+            #for y in range (0,8):
+            #  sys.stdout.write(str(ord(rfsettings.message_queue[x][y]))+",")
+            #print ""
             rfsettings.message_queue.pop(x)
         else:
             x=x+1
@@ -99,7 +105,6 @@ def queue_processing():
     sensordata=""
     bme_data=""
     bme_messages=0
-    uom=""
     start_time = time.time()
     while (True):
         if len(rfsettings.message_queue)>0 and not rfsettings.rf_event.is_set():
@@ -109,69 +114,62 @@ def queue_processing():
             data = message[1]
             dprint(time.strftime("%c")+ " " + message[0]+message[1])
             if data.startswith('BUTTONON'):
+                devID=globals.BUTTONPrefix+devID
                 sensordata=0
-                db_type=1
-                uom=""
+                PEPFunction=26
 
             if data.startswith('STATEON'):
+                devID=globals.BUTTONPrefix+devID
                 sensordata=0
-                db_type=2
-                uom=""
+                PEPFunction=38
 
             if data.startswith('STATEOFF'):
+                devID=globals.BUTTONPrefix+devID
                 sensordata=1
-                db_type=2
-                uom=""
+                PEPFunction=38
 
             if data.startswith('BUTTONOFF'):
                 sensordata=1
-                db_type=1
-                uom=""
+                PEPFunction=26
 
             if data.startswith('TMPA'):
                 sensordata=DoFahrenheitConversion(str(data[4:].rstrip("-")))
-                db_type=3
-                if Farenheit : uom="F"
-                else : uom="C"
+                PEPFunction=37
             
             if data.startswith('ANAA'):
                 sensordata=str(data[4:].rstrip("-"))
                 sensordata=(float(sensordata)-1470)/16 #convert it to a reading between 1(light) and 48 (dark)
                 sensordata=str(sensordata)
-                db_type=4
+                PEPFunction=37
                 measure='2'
-                uom=""
             
             if data.startswith('ANAB'):
+                devID=globals.ANABPrefix+devID
                 sensordata=str(data[4:].rstrip("-"))	
                 sensordata=(float(sensordata)-1470)/16 #convert it to a reading between 1(light) and 48 (dark)
                 sensordata=str(sensordata)
                 measure='2'
-                db_type=4
-                uom=""
+                PEPFunction=37
             
             if data.startswith('TMPC'):
+                devID=globals.TMPCPrefix+devID
                 sensordata=DoFahrenheitConversion(str(data[4:].rstrip("-")))
-                db_type=1
-                if Farenheit : uom="F"
-                else : uom="C"
+                PEPFunction=37
             
             if data.startswith('TMPB'): 
+                devID=globals.TMPBPrefix+devID
                 sensordata=DoFahrenheitConversion(str(data[4:].rstrip("-")))
-                db_type=1
-                if Farenheit : uom="F"
-                else : uom="C"
+                PEPFunction=37
                                     
             if data.startswith('HUM'):
+                devID=globals.HUMPrefix+devID
                 sensordata=str(data[3:].rstrip("-"))								
-                db_type=5
+                PEPFunction=37
                 measure='2'
-                uom="%"
                     
             if data.startswith('BATT'):
                 sensordata=data[4:].strip('-')
-                db_type=6
-                uom="V"
+                PEPFunction=22
          
             if data.startswith('BMP') or (bme_messages>0 and sensordata==''):
               start_time = time.time()
@@ -188,19 +186,17 @@ def queue_processing():
                   dprint(bme280.error)
                 else:
                   if bme280.temp_rt == 1:
-                    if Farenheit : uom="F"
-                    else : uom="C"
-                    ProcessMessage(DoFahrenheitConversion(round(bme280.temp,1)), devID, 1, uom)
+                    ProcessMessage(DoFahrenheitConversion(round(bme280.temp,2)), devID, 37)
                   if bme280.hum_rt == 1:
                     measure='2'
-                    ProcessMessage(round(bme280.hum,2), devID, 5, "%")
+                    ProcessMessage(round(bme280.hum,2), globals.HUMPrefix+devID, 37)
                   if bme280.hum_rt == 1:
                     measure='2'
-                    ProcessMessage(round(bme280.press/100,1), devID, 7, "P")
+                    ProcessMessage(round(bme280.press/100,1), globals.PRESPrefix+devID, 37)
                 bme_messages=0;
                 bme_data=""
             if sensordata <> "":
-                ProcessMessage(sensordata, devID, db_type, uom)
+                ProcessMessage(sensordata, devID, PEPFunction)
         sensordata=""
         
         if rfsettings.event.is_set():
@@ -220,14 +216,8 @@ def queue_processing():
       rfsettings.event.set()
       exit()
 
-
-def DoFahrenheitConversion(value):
-  if Farenheit:
-    value = float(value)*1.8+32
-    value = round(value,2)
-  return(value)
-
 def main():
+    globals.init()
     rfsettings.init()
 
     a=Thread(target=rf2serial, args=())
@@ -255,6 +245,8 @@ if __name__ == "__main__":
     finally:
       rfsettings.event.set()
       exit()
+
+
 
 
    
